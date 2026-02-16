@@ -30,6 +30,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import aiohttp
+from homeassistant.util import dt as dt_util
 
 from .const import API_BASE_URL, API_HEADER_AGENCY, API_HEADER_KEY, VEHICLE_TYPES
 
@@ -219,7 +220,8 @@ class TranzyApiClient:
                 serving_route_ids.add(int(rid))
 
         # ── Schedule-based arrivals ──────────────────────────
-        now = datetime.now()
+        now = dt_util.now()  # timezone-aware in HA’s configured timezone
+        midnight = now.replace(hour=0, minute=0, second=0, microsecond=0)
         schedule_arrivals: dict[str, dict] = {}  # keyed by trip_id
 
         for st in our_stop_times:
@@ -242,13 +244,22 @@ class TranzyApiClient:
             if arr_time_str and isinstance(arr_time_str, str) and ":" in arr_time_str:
                 try:
                     parts = arr_time_str.split(":")
-                    h, m = int(parts[0]), int(parts[1])
-                    sched = now.replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(hours=h, minutes=m)
+                    h = int(parts[0])
+                    m = int(parts[1])
+                    s = int(parts[2]) if len(parts) > 2 else 0
+
+                    # GTFS can use 24+ hours for after-midnight service
+                    days, h = divmod(h, 24)
+
+                    sched = midnight + timedelta(days=days, hours=h, minutes=m, seconds=s)
+
                     diff = (sched - now).total_seconds() / 60.0
-                    if -2 <= diff <= 120:
-                        eta_minutes = max(0, int(diff))
+
+                    # Keep “next” arrivals; widen slightly so you don’t drop edge cases
+                    if -5 <= diff <= 240:
+                        eta_minutes = max(0, int(round(diff)))
                     else:
-                        continue  # too far past/future
+                        continue
                 except (ValueError, IndexError):
                     pass
 
@@ -286,7 +297,7 @@ class TranzyApiClient:
             _LOGGER.warning("Vehicle fetch failed: %s", err)
             vehicles = []
 
-        now_utc = datetime.now(timezone.utc)
+        now_utc = dt_util.utcnow()
 
         for v in vehicles:
             v_type = v.get("vehicle_type")
