@@ -67,80 +67,74 @@ export TRANZY_API_KEY=your_api_key_here
 python tools/find_stops.py --api-key YOUR_KEY ...
 ```
 
-### List all agencies available for your key
+### Show upcoming arrivals at a stop (the main command)
+
+This is likely what you want — it shows what's coming to your stop, just like the station display:
 
 ```bash
+# All vehicle types at stop 70
+python tools/find_stops.py --agency 8 --arrivals 70
+
+# Only trams (vehicle_type 0)
+python tools/find_stops.py --agency 8 --arrivals 70 --type 0
+
+# Auto-refresh every 30 seconds (like a live display)
+python tools/find_stops.py --agency 8 --arrivals 70 --type 0 --watch
+```
+
+Output:
+```
+  ╔══════════════════════════════════════════════════════════╗
+  ║  🚏  Piata Libertății                                   ║
+  ║  Stop 70 · Tram                                         ║
+  ╠══════════════════════════════════════════════════════════╣
+  ║  🚋    1  → Calea Aradului                       3 min  ║
+  ║         veh:V42 · sched:08:45 · 22km/h · 🟢 LIVE       ║
+  ║  🚋    4  → Gara de Nord                         7 min  ║
+  ║         veh:V18 · sched:08:49 · 🟢 LIVE                ║
+  ║  🚋    8  → Calea Torontalului                  12 min  ║
+  ║         sched:08:54                                      ║
+  ╚══════════════════════════════════════════════════════════╝
+  Updated: 08:42:15
+```
+
+Each arrival shows:
+- **ETA in minutes** (from scheduled `arrival_time`, when available)
+- **Stops away** (from live GPS, when no schedule time)
+- **Vehicle label**, **speed**, and **🟢 LIVE** indicator when GPS-tracked
+- **Scheduled time** if present in the data
+
+The `--watch` flag clears the screen and refreshes every 30 seconds — leave it running in a terminal for a live departure board.
+
+Vehicle type codes: `0`=Tram, `3`=Bus, `11`=Trolleybus, `1`=Metro, `2`=Rail.
+
+### Discovery commands
+
+```bash
+# List agencies available for your key
 python tools/find_stops.py --agencies
-```
+#   ID=  8  STPT Timisoara       https://www.ratt.ro/
 
-Output:
-```
-  ID=  8  STPT Timisoara                 https://www.ratt.ro/
-```
-
-### List all routes for an agency
-
-```bash
+# List all routes for an agency
 python tools/find_stops.py --agency 8 --routes
-```
+#   ID       Name     Type         Long Name
+#   1        1        Tram         Calea Aradului - ...
+#   154      E1       Bus          ...
 
-Output:
-```
-32 routes:
-ID       Name       Type   Long Name
-------------------------------------------------------------
-1        1          0      Calea Aradului - ...
-2        2          0      ...
-154      E1         3      ...
-```
-
-The `Type` column is the GTFS vehicle type: `0` = Tram, `3` = Bus, `11` = Trolleybus.
-
-### Search stops by name
-
-```bash
+# Search stops by name
 python tools/find_stops.py --agency 8 --search "Piata"
-```
+#   ID       Name                            Lat          Lon
+#   70       Piata Libertății (Centru)        45.7553      21.2289
 
-Output:
-```
-5 stops:
-ID       Name                                     Lat          Lon
-----------------------------------------------------------------------
-70       Piata Libertății (Centru)                 45.7553      21.2289
-71       Piata Libertății (Nord)                   45.7558      21.2293
-...
-```
-
-### List all stops
-
-```bash
+# List all stops
 python tools/find_stops.py --agency 8 --list-all
-```
 
-### Get full details for a specific stop (including which routes serve it)
-
-```bash
+# Full details for a stop (info + which routes serve it)
 python tools/find_stops.py --agency 8 --stop-id 70
+#   🚋    1 (Tram) — Calea Aradului - ...
+#   🚋    2 (Tram) — ...
+#   🚋    8 (Tram) — ...
 ```
-
-Output:
-```json
-{
-  "stop_id": 70,
-  "stop_name": "Piata Libertății",
-  "stop_lat": 45.7553,
-  "stop_lon": 21.2289,
-  ...
-}
-
-Routes through stop 70:
-     1 (0) - Calea Aradului - ...
-     2 (0) - ...
-     8 (0) - ...
-```
-
-This tells you stop 70 is served by tram lines 1, 2, 8, etc.
 
 ### Using curl directly
 
@@ -149,53 +143,19 @@ If you prefer raw API calls:
 ```bash
 # List agencies (only needs X-API-KEY)
 curl -s -H "X-API-KEY: $TRANZY_API_KEY" \
-  -H "Accept: application/json" \
   https://api.tranzy.ai/v1/opendata/agency | python3 -m json.tool
 
 # List stops (needs X-API-KEY + X-Agency-Id)
-curl -s -H "X-API-KEY: $TRANZY_API_KEY" \
-  -H "X-Agency-Id: 8" \
-  -H "Accept: application/json" \
+curl -s -H "X-API-KEY: $TRANZY_API_KEY" -H "X-Agency-Id: 8" \
   https://api.tranzy.ai/v1/opendata/stops | python3 -m json.tool
 
-# List routes
-curl -s -H "X-API-KEY: $TRANZY_API_KEY" \
-  -H "X-Agency-Id: 8" \
-  -H "Accept: application/json" \
-  https://api.tranzy.ai/v1/opendata/routes | python3 -m json.tool
-
 # Get real-time vehicle positions
-curl -s -H "X-API-KEY: $TRANZY_API_KEY" \
-  -H "X-Agency-Id: 8" \
-  -H "Accept: application/json" \
+curl -s -H "X-API-KEY: $TRANZY_API_KEY" -H "X-Agency-Id: 8" \
   https://api.tranzy.ai/v1/opendata/vehicles | python3 -m json.tool
 
 # Get scheduled stop times
-curl -s -H "X-API-KEY: $TRANZY_API_KEY" \
-  -H "X-Agency-Id: 8" \
-  -H "Accept: application/json" \
+curl -s -H "X-API-KEY: $TRANZY_API_KEY" -H "X-Agency-Id: 8" \
   https://api.tranzy.ai/v1/opendata/stop_times | python3 -m json.tool
-```
-
-### Quick check: "What trams are coming to my stop right now?"
-
-```bash
-# One-liner: get vehicles on active trips, filter by your desired route
-# This shows all live vehicles — pipe through jq to filter
-curl -s -H "X-API-KEY: $TRANZY_API_KEY" \
-  -H "X-Agency-Id: 8" \
-  -H "Accept: application/json" \
-  https://api.tranzy.ai/v1/opendata/vehicles | \
-  python3 -c "
-import json, sys
-vehicles = json.load(sys.stdin)
-# Show only trams (vehicle_type=0) that are actively on a trip
-active = [v for v in vehicles if v.get('vehicle_type') == 0 and v.get('trip_id')]
-for v in active:
-    print(f\"  Vehicle {v['label']:>5}  route={v.get('route_id', '?'):>4}  trip={v.get('trip_id', '?'):<10}  speed={v.get('speed', 0):>3}  @ {v.get('latitude', 0):.4f}, {v.get('longitude', 0):.4f}  [{v.get('timestamp', '')}]\")
-if not active:
-    print('  No active trams right now (service may be over for the day)')
-"
 ```
 
 ---
