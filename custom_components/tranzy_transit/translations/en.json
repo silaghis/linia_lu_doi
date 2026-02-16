@@ -3,20 +3,21 @@
     "step": {
       "user": {
         "title": "Tranzy Transit Setup",
-        "description": "Configure your Tranzy API connection. Get your API key at https://tranzy.dev/accounts/my-apps",
+        "description": "Get your API key at apps.tranzy.ai/accounts. Find agency_id via GET /agency. Stop IDs via GET /stops.",
         "data": {
           "api_key": "API Key",
-          "agency_id": "Agency ID (e.g., CTP Cluj, SCTP Iasi)",
-          "stop_id": "Stop ID to monitor",
-          "stop_name": "Friendly name for this stop",
+          "agency_id": "Agency ID (number, e.g. 8 for Timișoara)",
+          "stop_id": "Stop ID (number, e.g. 70)",
+          "stop_name": "Friendly stop name (optional)",
           "scan_interval": "Update interval (seconds)",
-          "vehicle_types": "Vehicle types to show"
+          "vehicle_types": "Vehicle types to track"
         }
       }
     },
     "error": {
-      "cannot_connect": "Failed to connect to Tranzy API",
+      "cannot_connect": "Cannot connect to Tranzy API",
       "invalid_auth": "Invalid API key",
+      "invalid_agency": "Agency ID rejected — key may be for a different agency",
       "invalid_stop": "Stop ID not found for this agency",
       "unknown": "Unexpected error"
     },
@@ -30,8 +31,8 @@
         "title": "Tranzy Transit Options",
         "data": {
           "scan_interval": "Update interval (seconds)",
-          "vehicle_types": "Vehicle types to show",
-          "max_arrivals": "Maximum arrivals to show per route"
+          "vehicle_types": "Vehicle types",
+          "max_arrivals": "Max arrivals to show"
         }
       }
     }
