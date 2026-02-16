@@ -124,7 +124,7 @@ class TranzyApiClient:
     # ── Static data ──────────────────────────────────────────
 
     def _cache_ok(self) -> bool:
-        return self._cache_ts and (datetime.now() - self._cache_ts) < self._cache_ttl
+        return self._cache_ts is not None and (dt_util.utcnow() - self._cache_ts) < self._cache_ttl
 
     async def ensure_static(self) -> None:
         if self._cache_ok():
@@ -179,7 +179,7 @@ class TranzyApiClient:
             len(self._routes), len(self._stops), len(self._trips),
             sum(len(v) for v in self._stop_times_by_stop.values()),
         )
-        self._cache_ts = datetime.now()
+        self._cache_ts = dt_util.utcnow()
 
     async def validate_stop(self, stop_id: int) -> dict | None:
         await self.ensure_static()
@@ -256,7 +256,7 @@ class TranzyApiClient:
                     diff = (sched - now).total_seconds() / 60.0
 
                     # Keep “next” arrivals; widen slightly so you don’t drop edge cases
-                    if -5 <= diff <= 240:
+                    if -5 <= diff <= 720:   # DEBUG: this should be 240 for usual use
                         eta_minutes = max(0, int(round(diff)))
                     else:
                         continue
@@ -408,7 +408,7 @@ class TranzyApiClient:
         for idx, sid in enumerate(trip_stops):
             s = self._stops.get(sid, {})
             slat = s.get("stop_lat")
-            slon = s.get("stop_lon")
+            slon = s.get("stop_lon", s.get("stop_lng"))
             if slat is None or slon is None:
                 continue
             d = (lat - float(slat)) ** 2 + (lon - float(slon)) ** 2
