@@ -4,6 +4,11 @@ Real-time public transit arrivals (trams, buses, trolleybuses) for Romanian and 
 
 Works as both a **standalone CLI tool** (query from terminal) and a **Home Assistant custom integration** with a Lovelace dashboard card.
 
+[![Open your Home Assistant instance and open a repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=silaghis&repository=linia_lu_doi&category=integration)
+
+
+[![Download](https://img.shields.io/github/v/release/silaghis/linia_lu_doi?label=Download)](https://github.com/silaghis/linia_lu_doi/releases/latest)
+
 ---
 
 ## Table of Contents
@@ -167,7 +172,7 @@ curl -s -H "X-API-KEY: $TRANZY_API_KEY" -H "X-Agency-Id: 8" \
 #### Via HACS (Recommended)
 
 1. In Home Assistant, go to **HACS** → three-dot menu → **Custom repositories**
-2. Add the repository URL (e.g., `https://github.com/YOUR_USER/ha-tranzy-transit`)
+2. Add the repository URL (e.g., `https://github.com/silaghis/ha-tranzy-transit`)
 3. Category: **Integration**
 4. Click **Add**, then find "Tranzy Transit" and click **Install**
 5. **Restart Home Assistant**
