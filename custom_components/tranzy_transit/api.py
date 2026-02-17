@@ -256,7 +256,7 @@ class TranzyApiClient:
                     diff = (sched - now).total_seconds() / 60.0
 
                     # Keep “next” arrivals; widen slightly so you don’t drop edge cases
-                    if -5 <= diff <= 720:   # DEBUG: this should be 240 for usual use
+                    if -5 <= diff <= 1440:   # DEBUG: this should be 240 for usual use
                         eta_minutes = max(0, int(round(diff)))
                     else:
                         continue

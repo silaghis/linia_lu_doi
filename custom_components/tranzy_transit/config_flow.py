@@ -1,4 +1,9 @@
-"""Config flow for Tranzy Transit — numeric agency_id (e.g. 8)."""
+"""Config flow for Tranzy Transit — numeric agency_id (e.g. 8).
+
+Important: Home Assistant must be able to serialize the schema to render it in the UI.
+Do NOT use vol.In(dict) (e.g., vol.In(VEHICLE_TYPES)) — it breaks voluptuous_serialize and causes 500 errors.
+We accept vehicle types as a list of integers instead.
+"""
 from __future__ import annotations
 
 import logging
@@ -10,15 +15,60 @@ from homeassistant import config_entries
 from homeassistant.core import callback
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
-from .api import TranzyApiClient, TranzyAuthError, TranzyConnectionError
+from .api import TranzyApiClient, TranzyConnectionError
 from .const import (
-    CONF_AGENCY_ID, CONF_AGENCY_NAME, CONF_API_KEY, CONF_MAX_ARRIVALS,
-    CONF_SCAN_INTERVAL, CONF_STOP_ID, CONF_STOP_NAME, CONF_VEHICLE_TYPES,
-    DEFAULT_MAX_ARRIVALS, DEFAULT_SCAN_INTERVAL, DEFAULT_VEHICLE_TYPES,
-    DOMAIN, VEHICLE_TYPES,
+    CONF_AGENCY_ID,
+    CONF_AGENCY_NAME,
+    CONF_API_KEY,
+    CONF_MAX_ARRIVALS,
+    CONF_SCAN_INTERVAL,
+    CONF_STOP_ID,
+    CONF_STOP_NAME,
+    CONF_VEHICLE_TYPES,
+    DEFAULT_MAX_ARRIVALS,
+    DEFAULT_SCAN_INTERVAL,
+    DEFAULT_VEHICLE_TYPES,
+    DOMAIN,
 )
 
 _LOGGER = logging.getLogger(__name__)
+
+
+def _step_user_schema() -> vol.Schema:
+    return vol.Schema(
+        {
+            vol.Required(CONF_API_KEY): str,
+            vol.Required(CONF_AGENCY_ID, default=8): vol.Coerce(int),
+            vol.Required(CONF_STOP_ID, default=70): vol.Coerce(int),
+            vol.Optional(CONF_STOP_NAME, default=""): str,
+            vol.Optional(CONF_SCAN_INTERVAL, default=DEFAULT_SCAN_INTERVAL): vol.All(
+                vol.Coerce(int), vol.Range(min=10, max=300)
+            ),
+            # List of integers. No dict-based vol.In() here.
+            vol.Optional(CONF_VEHICLE_TYPES, default=DEFAULT_VEHICLE_TYPES): vol.All(
+                list, [vol.Coerce(int)]
+            ),
+        }
+    )
+
+
+def _step_options_schema(entry: config_entries.ConfigEntry) -> vol.Schema:
+    return vol.Schema(
+        {
+            vol.Optional(
+                CONF_SCAN_INTERVAL,
+                default=entry.options.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL),
+            ): vol.All(vol.Coerce(int), vol.Range(min=10, max=300)),
+            vol.Optional(
+                CONF_VEHICLE_TYPES,
+                default=entry.options.get(CONF_VEHICLE_TYPES, DEFAULT_VEHICLE_TYPES),
+            ): vol.All(list, [vol.Coerce(int)]),
+            vol.Optional(
+                CONF_MAX_ARRIVALS,
+                default=entry.options.get(CONF_MAX_ARRIVALS, DEFAULT_MAX_ARRIVALS),
+            ): vol.All(vol.Coerce(int), vol.Range(min=1, max=30)),
+        }
+    )
 
 
 class TranzyTransitConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
@@ -33,37 +83,29 @@ class TranzyTransitConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             api_key = user_input[CONF_API_KEY].strip()
             agency_id = int(user_input[CONF_AGENCY_ID])
             stop_id = int(user_input[CONF_STOP_ID])
-            stop_name = user_input.get(CONF_STOP_NAME, "").strip()
-            vt = user_input.get(CONF_VEHICLE_TYPES, DEFAULT_VEHICLE_TYPES)
+            stop_name = (user_input.get(CONF_STOP_NAME) or "").strip()
+            scan_interval = int(user_input.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL))
+            vehicle_types = user_input.get(CONF_VEHICLE_TYPES, DEFAULT_VEHICLE_TYPES)
 
             await self.async_set_unique_id(f"{agency_id}_{stop_id}")
             self._abort_if_unique_id_configured()
 
             session = async_get_clientsession(self.hass)
-
-            # Test API key
             client = TranzyApiClient(session, api_key, agency_id)
+
+            # Validate API key + agency
             try:
                 if not await client.test_api_key():
                     errors["base"] = "invalid_auth"
+                elif not await client.test_agency():
+                    errors["base"] = "invalid_agency"
             except TranzyConnectionError:
                 errors["base"] = "cannot_connect"
             except Exception:
-                _LOGGER.exception("Unexpected error")
+                _LOGGER.exception("Unexpected error during validation")
                 errors["base"] = "unknown"
 
-            # Test agency
-            if not errors:
-                try:
-                    if not await client.test_agency():
-                        errors["base"] = "invalid_agency"
-                except TranzyConnectionError:
-                    errors["base"] = "cannot_connect"
-                except Exception:
-                    _LOGGER.exception("Unexpected error")
-                    errors["base"] = "unknown"
-
-            # Validate stop
+            # Validate stop and enrich names
             if not errors:
                 try:
                     stop_data = await client.validate_stop(stop_id)
@@ -73,7 +115,6 @@ class TranzyTransitConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         if not stop_name:
                             stop_name = stop_data.get("stop_name", f"Stop {stop_id}")
 
-                        # Get agency display name
                         agency_name = f"Agency {agency_id}"
                         try:
                             agencies = await client.get_agencies()
@@ -82,6 +123,7 @@ class TranzyTransitConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                                     agency_name = ag.get("agency_name", agency_name)
                                     break
                         except Exception:
+                            # Non-fatal: still allow setup even if agencies lookup fails
                             pass
 
                         return self.async_create_entry(
@@ -94,66 +136,44 @@ class TranzyTransitConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                                 CONF_STOP_NAME: stop_name,
                             },
                             options={
-                                CONF_SCAN_INTERVAL: user_input.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL),
-                                CONF_VEHICLE_TYPES: vt,
+                                CONF_SCAN_INTERVAL: scan_interval,
+                                CONF_VEHICLE_TYPES: vehicle_types,
                                 CONF_MAX_ARRIVALS: DEFAULT_MAX_ARRIVALS,
                             },
                         )
                 except TranzyConnectionError:
                     errors["base"] = "cannot_connect"
                 except Exception:
-                    _LOGGER.exception("Unexpected error")
+                    _LOGGER.exception("Unexpected error during stop validation")
                     errors["base"] = "unknown"
-
-        # Vehicle type selector: {0: "Tram", 3: "Bus", ...}
-        vt_options = {k: v for k, v in VEHICLE_TYPES.items()}
 
         return self.async_show_form(
             step_id="user",
-            data_schema=vol.Schema({
-                vol.Required(CONF_API_KEY): str,
-                vol.Required(CONF_AGENCY_ID, default=8): int,
-                vol.Required(CONF_STOP_ID, default=70): int,
-                vol.Optional(CONF_STOP_NAME, default=""): str,
-                vol.Optional(CONF_SCAN_INTERVAL, default=DEFAULT_SCAN_INTERVAL): vol.All(
-                    int, vol.Range(min=10, max=300)
-                ),
-                vol.Optional(CONF_VEHICLE_TYPES, default=DEFAULT_VEHICLE_TYPES): vol.All(
-                    [vol.In(vt_options)]
-                ),
-            }),
+            data_schema=_step_user_schema(),
             errors=errors,
         )
 
     @staticmethod
     @callback
-    def async_get_options_flow(config_entry):
+    def async_get_options_flow(config_entry: config_entries.ConfigEntry):
         return TranzyOptionsFlow(config_entry)
 
 
 class TranzyOptionsFlow(config_entries.OptionsFlow):
-    def __init__(self, config_entry):
+    def __init__(self, config_entry: config_entries.ConfigEntry) -> None:
         self._entry = config_entry
 
-    async def async_step_init(self, user_input=None):
+    async def async_step_init(self, user_input=None) -> config_entries.ConfigFlowResult:
         if user_input is not None:
-            return self.async_create_entry(title="", data=user_input)
+            # Ensure types are stored cleanly
+            data = {
+                CONF_SCAN_INTERVAL: int(user_input.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL)),
+                CONF_MAX_ARRIVALS: int(user_input.get(CONF_MAX_ARRIVALS, DEFAULT_MAX_ARRIVALS)),
+                CONF_VEHICLE_TYPES: user_input.get(CONF_VEHICLE_TYPES, DEFAULT_VEHICLE_TYPES),
+            }
+            return self.async_create_entry(title="", data=data)
 
-        vt_options = {k: v for k, v in VEHICLE_TYPES.items()}
         return self.async_show_form(
             step_id="init",
-            data_schema=vol.Schema({
-                vol.Optional(
-                    CONF_SCAN_INTERVAL,
-                    default=self._entry.options.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL),
-                ): vol.All(int, vol.Range(min=10, max=300)),
-                vol.Optional(
-                    CONF_VEHICLE_TYPES,
-                    default=self._entry.options.get(CONF_VEHICLE_TYPES, DEFAULT_VEHICLE_TYPES),
-                ): vol.All([vol.In(vt_options)]),
-                vol.Optional(
-                    CONF_MAX_ARRIVALS,
-                    default=self._entry.options.get(CONF_MAX_ARRIVALS, DEFAULT_MAX_ARRIVALS),
-                ): vol.All(int, vol.Range(min=1, max=30)),
-            }),
+            data_schema=_step_options_schema(self._entry),
         )
