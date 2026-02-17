@@ -17,32 +17,28 @@ from .const import (
 from .coordinator import TranzyTransitCoordinator
 
 _LOGGER = logging.getLogger(__name__)
-PLATFORMS = [Platform.SENSOR]
+
+PLATFORMS: list[str] = ["sensor"]
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    hass.data.setdefault(DOMAIN, {})
+    coordinator = TranzyTransitCoordinator(hass, entry)
 
-    client = TranzyApiClient(
-        session=async_get_clientsession(hass),
-        api_key=entry.data[CONF_API_KEY],
-        agency_id=entry.data[CONF_AGENCY_ID],
-    )
-
-    coordinator = TranzyTransitCoordinator(
-        hass=hass,
-        client=client,
-        stop_id=int(entry.data[CONF_STOP_ID]),
-        stop_name=entry.data.get(CONF_STOP_NAME, f"Stop {entry.data[CONF_STOP_ID]}"),
-        vehicle_types=entry.options.get(CONF_VEHICLE_TYPES, DEFAULT_VEHICLE_TYPES),
-        update_interval=entry.options.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL),
-    )
-
+    # Ensure first refresh so sensors get data ASAP
     await coordinator.async_config_entry_first_refresh()
+
+    hass.data.setdefault(DOMAIN, {})
     hass.data[DOMAIN][entry.entry_id] = coordinator
+
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
-    entry.async_on_unload(entry.add_update_listener(_async_update_options))
     return True
+
+
+async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
+    if unload_ok:
+        hass.data[DOMAIN].pop(entry.entry_id, None)
+    return unload_ok
 
 
 async def _async_update_options(hass: HomeAssistant, entry: ConfigEntry) -> None:
