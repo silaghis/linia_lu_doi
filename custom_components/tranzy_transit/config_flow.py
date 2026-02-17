@@ -1,8 +1,11 @@
 """Config flow for Tranzy Transit — numeric agency_id (e.g. 8).
 
 Important: Home Assistant must be able to serialize the schema to render it in the UI.
-Do NOT use vol.In(dict) (e.g., vol.In(VEHICLE_TYPES)) — it breaks voluptuous_serialize and causes 500 errors.
-We accept vehicle types as a list of integers instead.
+Avoid:
+- vol.In(dict)  -> breaks voluptuous_serialize
+- vol.All(list, ...) -> breaks voluptuous_serialize (list type is not serializable)
+
+We accept vehicle types as a list of integers (e.g., [0] for Tram).
 """
 from __future__ import annotations
 
@@ -34,7 +37,7 @@ from .const import (
 _LOGGER = logging.getLogger(__name__)
 
 
-def _step_user_schema() -> vol.Schema:
+def _user_schema() -> vol.Schema:
     return vol.Schema(
         {
             vol.Required(CONF_API_KEY): str,
@@ -44,15 +47,13 @@ def _step_user_schema() -> vol.Schema:
             vol.Optional(CONF_SCAN_INTERVAL, default=DEFAULT_SCAN_INTERVAL): vol.All(
                 vol.Coerce(int), vol.Range(min=10, max=300)
             ),
-            # List of integers. No dict-based vol.In() here.
-            vol.Optional(CONF_VEHICLE_TYPES, default=DEFAULT_VEHICLE_TYPES): vol.All(
-                list, [vol.Coerce(int)]
-            ),
+            # Must be serializable: DO NOT use vol.All(list, ...)
+            vol.Optional(CONF_VEHICLE_TYPES, default=DEFAULT_VEHICLE_TYPES): [vol.Coerce(int)],
         }
     )
 
 
-def _step_options_schema(entry: config_entries.ConfigEntry) -> vol.Schema:
+def _options_schema(entry: config_entries.ConfigEntry) -> vol.Schema:
     return vol.Schema(
         {
             vol.Optional(
@@ -62,7 +63,7 @@ def _step_options_schema(entry: config_entries.ConfigEntry) -> vol.Schema:
             vol.Optional(
                 CONF_VEHICLE_TYPES,
                 default=entry.options.get(CONF_VEHICLE_TYPES, DEFAULT_VEHICLE_TYPES),
-            ): vol.All(list, [vol.Coerce(int)]),
+            ): [vol.Coerce(int)],
             vol.Optional(
                 CONF_MAX_ARRIVALS,
                 default=entry.options.get(CONF_MAX_ARRIVALS, DEFAULT_MAX_ARRIVALS),
@@ -123,7 +124,6 @@ class TranzyTransitConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                                     agency_name = ag.get("agency_name", agency_name)
                                     break
                         except Exception:
-                            # Non-fatal: still allow setup even if agencies lookup fails
                             pass
 
                         return self.async_create_entry(
@@ -149,7 +149,7 @@ class TranzyTransitConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         return self.async_show_form(
             step_id="user",
-            data_schema=_step_user_schema(),
+            data_schema=_user_schema(),
             errors=errors,
         )
 
@@ -165,7 +165,6 @@ class TranzyOptionsFlow(config_entries.OptionsFlow):
 
     async def async_step_init(self, user_input=None) -> config_entries.ConfigFlowResult:
         if user_input is not None:
-            # Ensure types are stored cleanly
             data = {
                 CONF_SCAN_INTERVAL: int(user_input.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL)),
                 CONF_MAX_ARRIVALS: int(user_input.get(CONF_MAX_ARRIVALS, DEFAULT_MAX_ARRIVALS)),
@@ -175,5 +174,5 @@ class TranzyOptionsFlow(config_entries.OptionsFlow):
 
         return self.async_show_form(
             step_id="init",
-            data_schema=_step_options_schema(self._entry),
+            data_schema=_options_schema(self._entry),
         )
