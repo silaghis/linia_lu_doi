@@ -1,11 +1,9 @@
-"""Config flow for Tranzy Transit — numeric agency_id (e.g. 8).
+"""Config flow for Tranzy Transit.
 
-Important: Home Assistant must be able to serialize the schema to render it in the UI.
-Avoid:
-- vol.In(dict)  -> breaks voluptuous_serialize
-- vol.All(list, ...) -> breaks voluptuous_serialize (list type is not serializable)
-
-We accept vehicle types as a list of integers (e.g., [0] for Tram).
+This version is maximally compatible with Home Assistant's schema serializer:
+- No vol.In(dict)
+- No list validators like [vol.Coerce(int)]
+- Vehicle types are entered as a comma-separated string (e.g. "0" or "0,3,11")
 """
 from __future__ import annotations
 
@@ -36,6 +34,37 @@ from .const import (
 
 _LOGGER = logging.getLogger(__name__)
 
+CONF_VEHICLE_TYPES_CSV = "vehicle_types_csv"
+
+
+def _ints_to_csv(values: list[int]) -> str:
+    try:
+        return ",".join(str(int(x)) for x in values)
+    except Exception:
+        return ""
+
+
+def _parse_csv_to_ints(value: str) -> list[int]:
+    if value is None:
+        return []
+    s = str(value).strip()
+    if not s:
+        return []
+    out: list[int] = []
+    for part in s.split(","):
+        p = part.strip()
+        if not p:
+            continue
+        out.append(int(p))
+    # de-dup while preserving order
+    seen = set()
+    uniq: list[int] = []
+    for x in out:
+        if x not in seen:
+            seen.add(x)
+            uniq.append(x)
+    return uniq
+
 
 def _user_schema() -> vol.Schema:
     return vol.Schema(
@@ -47,13 +76,14 @@ def _user_schema() -> vol.Schema:
             vol.Optional(CONF_SCAN_INTERVAL, default=DEFAULT_SCAN_INTERVAL): vol.All(
                 vol.Coerce(int), vol.Range(min=10, max=300)
             ),
-            # Must be serializable: DO NOT use vol.All(list, ...)
-            vol.Optional(CONF_VEHICLE_TYPES, default=DEFAULT_VEHICLE_TYPES): [vol.Coerce(int)],
+            # CSV string (e.g. "0" for tram, "0,3,11" for tram+bus+trolleybus)
+            vol.Optional(CONF_VEHICLE_TYPES_CSV, default=_ints_to_csv(DEFAULT_VEHICLE_TYPES)): str,
         }
     )
 
 
 def _options_schema(entry: config_entries.ConfigEntry) -> vol.Schema:
+    current_types = entry.options.get(CONF_VEHICLE_TYPES, DEFAULT_VEHICLE_TYPES)
     return vol.Schema(
         {
             vol.Optional(
@@ -61,13 +91,13 @@ def _options_schema(entry: config_entries.ConfigEntry) -> vol.Schema:
                 default=entry.options.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL),
             ): vol.All(vol.Coerce(int), vol.Range(min=10, max=300)),
             vol.Optional(
-                CONF_VEHICLE_TYPES,
-                default=entry.options.get(CONF_VEHICLE_TYPES, DEFAULT_VEHICLE_TYPES),
-            ): [vol.Coerce(int)],
-            vol.Optional(
                 CONF_MAX_ARRIVALS,
                 default=entry.options.get(CONF_MAX_ARRIVALS, DEFAULT_MAX_ARRIVALS),
             ): vol.All(vol.Coerce(int), vol.Range(min=1, max=30)),
+            vol.Optional(
+                CONF_VEHICLE_TYPES_CSV,
+                default=_ints_to_csv(current_types),
+            ): str,
         }
     )
 
@@ -86,7 +116,15 @@ class TranzyTransitConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             stop_id = int(user_input[CONF_STOP_ID])
             stop_name = (user_input.get(CONF_STOP_NAME) or "").strip()
             scan_interval = int(user_input.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL))
-            vehicle_types = user_input.get(CONF_VEHICLE_TYPES, DEFAULT_VEHICLE_TYPES)
+
+            # Parse vehicle types
+            try:
+                vehicle_types = _parse_csv_to_ints(user_input.get(CONF_VEHICLE_TYPES_CSV, ""))
+                if not vehicle_types:
+                    vehicle_types = DEFAULT_VEHICLE_TYPES
+            except ValueError:
+                errors["base"] = "invalid_vehicle_types"
+                vehicle_types = DEFAULT_VEHICLE_TYPES
 
             await self.async_set_unique_id(f"{agency_id}_{stop_id}")
             self._abort_if_unique_id_configured()
@@ -165,10 +203,18 @@ class TranzyOptionsFlow(config_entries.OptionsFlow):
 
     async def async_step_init(self, user_input=None) -> config_entries.ConfigFlowResult:
         if user_input is not None:
+            # Parse vehicle types CSV
+            try:
+                vehicle_types = _parse_csv_to_ints(user_input.get(CONF_VEHICLE_TYPES_CSV, ""))
+                if not vehicle_types:
+                    vehicle_types = DEFAULT_VEHICLE_TYPES
+            except ValueError:
+                vehicle_types = DEFAULT_VEHICLE_TYPES
+
             data = {
                 CONF_SCAN_INTERVAL: int(user_input.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL)),
                 CONF_MAX_ARRIVALS: int(user_input.get(CONF_MAX_ARRIVALS, DEFAULT_MAX_ARRIVALS)),
-                CONF_VEHICLE_TYPES: user_input.get(CONF_VEHICLE_TYPES, DEFAULT_VEHICLE_TYPES),
+                CONF_VEHICLE_TYPES: vehicle_types,
             }
             return self.async_create_entry(title="", data=data)
 
